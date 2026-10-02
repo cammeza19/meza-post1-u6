@@ -62,3 +62,16 @@ Se eligió **Strategy** y no un eslabón más de la cadena de validación para e
 
 #### Extracción de responsabilidades de infraestructura (SRP)
 Se extrajo la persistencia directa a la clase `PedidoRepository` (@Repository) y la notificación por correo a `NotificacionPedidoService` (@Service). Con esto, `GestorPedidos` se reduce a un orquestador delgado que únicamente coordina el flujo entre las capas sin conocer sus detalles de implementación internos.
+
+---
+
+## Diagnóstico de Antipatrones en el Crecimiento del Proyecto (Parte 2)
+
+### Antipatrón identificado: Golden Hammer (Martillo de Oro)
+
+#### 1. Evidencia concreta en el código
+Al incorporar las campañas `BLACK_FRIDAY`, `CORPORATIVO` y `VOLUMEN`, se crearon las clases `PromocionBlackFriday`, `PromocionCorporativo` y `PromocionVolumen` heredando de `ValidadorPedido` y encadenándolas junto a los validadores reales.
+
+* **Ausencia de dependencia de orden y de corte anticipado:** A diferencia de `ValidadorStock` y `ValidadorCliente` (donde si el stock es insuficiente el flujo se interrumpe y no se consulta la mora del cliente), las campañas de promoción no tienen ninguna dependencia secuencial entre sí ni necesitan rechazar el pedido.
+* **Violación del contrato de abstracción:** La clase abstracta `ValidadorPedido` tiene como responsabilidad decidir si un pedido continúa o se rechaza (`contexto.rechazar(...)`). Las clases de promoción **nunca rechazan nada**; solo aprovechan la estructura existente para "engancharse" y mutar un campo compartido (`descuentoCampana`) en `ContextoPedido`.
+* **Reutilización por conveniencia y no por idoneidad:** Se aplicó `Chain of Responsibility` simplemente porque era la solución que ya estaba implementada y funcionaba en el proyecto para la Parte 1, sin evaluar si el nuevo requerimiento (cálculo de promociones) se ajustaba a la forma de una cadena.
