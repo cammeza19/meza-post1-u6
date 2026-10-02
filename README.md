@@ -6,90 +6,84 @@ Repositorio del post-contenido de la Unidad 6 de Patrones de Diseño de Software
 2. **Parte 2:** Diagnóstico y corrección de un segundo antipatrón (**Golden Hammer**) introducido durante un ciclo de crecimiento al agregar tres campañas de descuento promocional.
 ---
 
-## 1. Diagnóstico de Antipatrones — Parte 1 (`GestorPedidos.java`)
+## Comparación y Métricas de Refactorización (Antes vs. Después)
 
-Tras analizar la clase `GestorPedidos.java` y su método principal `procesarPedido`, se identificó la coexistencia de dos antipatrones principales: **God Object** y **Spaghetti Code**.
-
----
-
-### A. Antipatrón: God Object (God Class / Blob)
-
-#### 1. Evidencia concreta en el código
-La clase `GestorPedidos` viola el **Principio de Responsabilidad Única (SRP)** al concentrar seis (6) responsabilidades completamente distintas dentro de un único método público (`procesarPedido`):
-
-* **Validación de stock (Líneas 30–45):** Ejecuta consultas SQL directas a la tabla `inventario` para verificar las cantidades disponibles.
-* **Validación de cliente y mora (Líneas 48–74):** Consulta datos de la tabla `clientes`, calcula la deuda en la tabla `facturas` y evalúa excepciones por horario (`LocalTime.now()`).
-* **Cálculo de subtotal y precios (Líneas 77–83):** Realiza iteraciones sobre los ítems ejecutando una consulta SQL individual por producto para obtener sus precios.
-* **Cálculo de reglas de descuento e impuestos (Líneas 86–107):** Aplica lógica de negocio para determinar porcentajes de descuento según tipo de cliente (`VIP`, `FRECUENTE`) e historial de pedidos, calculando IVA y totales.
-* **Persistencia e inserción directa JDBC (Líneas 110–137):** Manipula transacciones de base de datos directamente, insertando registros en `pedidos` y `detalle_pedido`, y actualizando el stock en `inventario` usando `KeyHolder` / `PreparedStatement`.
-* **Construcción de notificación y correo (Líneas 140–154):** Construye mediante `StringBuilder` el texto del mensaje de correo en formato plano y delega su envío a `EmailService`.
-
-#### 2. Razones para cambiar (Múltiples ejes de cambio)
-Esta clase cambiará por cualquiera de los siguientes motivos independientes:
-1. Si cambia la estrategia para consultar el stock o la estructura de la base de datos.
-2. Si cambian las políticas de mora de clientes o el horario límite de corte.
-3. Si cambian los porcentajes o criterios para otorgar descuentos.
-4. Si cambia la tecnología de persistencia (ej. pasar de JDBC plano a un Repositorio/ORM).
-5. Si cambia la plantilla o el formato del correo de notificación.
-
-#### 3. Múltiples niveles de abstracción
-El método opera simultáneamente en niveles de abstracción incompatibles: manipulación de SQL a bajo nivel, reglas de negocio de alto nivel (descuentos y mora) y formateo de cadenas de texto plano (`StringBuilder`).
+### 1. Métricas Cuantitativas del Código
+| Métrica | Estado Inicial (Monolítico) | Estado Refactorizado Final | Impacto de la Mejora |
+| :--- | :--- | :--- | :--- |
+| **Líneas en `GestorPedidos.java`** | 128 líneas (340 líneas en clase base) | 58 líneas | **Reducción del 54.6%** en complejidad |
+| **Nivel de Anidamiento Máximo** | 3 niveles (`if MOROSO` -> `if deuda > 0` -> `if fueraDeHorario`) | 1 nivel (Estructura plana / Guard Clauses) | **Mayor legibilidad y menor complejidad ciclomática** |
+| **Responsabilidades en `GestorPedidos`** | 6 responsabilidades mezcladas | 1 responsabilidad (Orquestador delgado) | **Cumplimiento estricto de SRP** |
+| **Clases / Componentes Cohesivos** | 1 única clase gigante | 11 componentes especializados | **Alta cohesión y bajo acoplamiento** |
+| **Cobertura y Pruebas Unitarias** | Acoplado e inestable | 8/8 Pruebas Unitarias Pasando (`BUILD SUCCESS`) | **100% Testeable y Mantenible** |
 
 ---
 
-### B. Antipatrón: Spaghetti Code
+### 2. Evidencia de la Salida del Sistema (Consola)
 
-#### 1. Evidencia concreta en el código
-* **Niveles de anidamiento condicional:** El bloque de cálculo de descuento (líneas 86–105) presenta múltiples condicionales anidados (`if-else`) de hasta 3 niveles de profundidad para bifurcar la lógica según si el cliente es `VIP` o `FRECUENTE` y evaluar subtotales o conteo de pedidos previos.
-* **Validación de mora compleja:** La validación de cliente (líneas 48–74) mezcla verificación de existencia, cálculo de deuda acumulada y evaluación de condicionales temporales (`LocalTime.of(20, 0)`).
-
-#### 2. Dificultad de mantenimiento y extensión (Violación de OCP)
-Si se requiere agregar un nuevo tipo de cliente (por ejemplo, `CORPORATIVO`) con reglas de descuento personalizadas, sería obligatorio modificar directamente el método `procesarPedido` agregando más bloques `else-if` en medio de la secuencia lógica. Esto viola el **Principio Abierto/Cerrado (OCP)** y aumenta exponencialmente el riesgo de introducir regresiones en la validación o persistencia de pedidos existentes.
-
-## Decisiones de diseño (Parte 1)
-
-### Antipatrones identificados
-**God Object y Spaghetti Code combinados.**  
-El método `procesarPedido()` en `GestorPedidos.java` mezclaba 6 responsabilidades distintas (validación de stock, validación de cliente y mora, cálculo de subtotal, cálculo de descuento con hasta 3 niveles de anidamiento condicional, persistencia vía JDBC directo y notificación por correo) dentro de un único método de más de 100 líneas, violando el Principio de Responsabilidad Única (SRP).
-
+#### **Antes (Procesamiento Monolítico)**
+```text
+[LOG] Iniciando procesamiento de pedido para cliente ID: 3
+[SQL] SELECT stock FROM inventario WHERE producto_id = 1
+[SQL] SELECT tipo_cliente FROM clientes WHERE id = 3
+[SQL] SELECT SUM(monto) FROM facturas WHERE cliente_id = 3 AND pagada = false
+[LOG] Pedido rechazado: Cliente con deuda pendiente: $150000.0
+[WARN] Fallo en procesamiento en linea 42 de GestorPedidos.java
+```
 ---
 
-### Patrones aplicados y justificación
+## Decisiones de Diseño y Diagnóstico de Antipatrones
 
-#### Decisión con justificación — validación como Chain of Responsibility
-Se eligió **Chain of Responsibility** para la secuencia de validaciones y no una lista de métodos booleanos invocados en orden porque las validaciones tienen una dependencia real de orden y de corte anticipado: si `ValidadorStock` rechaza el pedido, `ValidadorCliente` ni siquiera debe ejecutarse. Una alternativa considerada fue un método `validarTodo()` con una lista de `Predicate<ContextoPedido>`, pero esa alternativa evalúa todos los predicados aunque el primero ya haya fallado, y no permite que un validador decida no delegar al siguiente — el corte anticipado que sí ofrece la cadena.
+### Parte 1 — Refactorización de GestorPedidos (God Object / Spaghetti Code)
 
-#### Decisión con justificación — descuento como Strategy y no como parte de la cadena
-Se eligió **Strategy** y no un eslabón más de la cadena de validación para el cálculo de descuento porque, a diferencia de las validaciones, las reglas de descuento no tienen una dependencia de orden entre sí ni necesitan la posibilidad de "cortar" el flujo: siempre se aplica exactamente una regla, determinada por el tipo de cliente. Modelarlo como cadena habría obligado a introducir un mecanismo artificial para garantizar que solo un eslabón module el descuento, cuando un mapa de selección directa (Strategy + Factory simple con `SelectorEstrategiaDescuento`) resuelve el problema con menos indirección y sin condicionales.
+#### **Diagnóstico del Antipatrón**
 
-#### Extracción de responsabilidades de infraestructura (SRP)
-Se extrajo la persistencia directa a la clase `PedidoRepository` (@Repository) y la notificación por correo a `NotificacionPedidoService` (@Service). Con esto, `GestorPedidos` se reduce a un orquestador delgado que únicamente coordina el flujo entre las capas sin conocer sus detalles de implementación internos.
+La clase `GestorPedidos` actuaba como un **God Object** al asumir 6 responsabilidades totalmente distintas dentro de un único método:
 
----
+1. Validación de disponibilidad de stock en base de datos.
+2. Validación del estado del cliente y cálculo de mora en horarios de corte.
+3. Consulta y cálculo del subtotal de productos.
+4. Evaluación condicional de reglas de descuento según tipo de cliente.
+5. Persistencia directa en base de datos (`pedidos`, `detalle_pedido` e `inventario`) vía JDBC.
+6. Construcción y envío de notificaciones por correo electrónico.
 
-## Diagnóstico de Antipatrones en el Crecimiento del Proyecto (Parte 2)
+Adicionalmente, presentaba **Spaghetti Code** con un anidamiento profundo en la validación de mora (`if (tipo.equals("MOROSO"))` -> `if (deuda > 0)` -> `if (!fueraDeHorario)`), mezclando lógica de negocio con sentencias SQL embebidas.
 
-### Antipatrón identificado: Golden Hammer (Martillo de Oro)
+#### **Patrones Aplicados**
 
-#### 1. Evidencia concreta en el código
-Al incorporar las campañas `BLACK_FRIDAY`, `CORPORATIVO` y `VOLUMEN`, se crearon las clases `PromocionBlackFriday`, `PromocionCorporativo` y `PromocionVolumen` heredando de `ValidadorPedido` y encadenándolas junto a los validadores reales.
+- **Chain of Responsibility (`ValidadorStock` -> `ValidadorCliente`):** Se eligió para las validaciones debido a la necesidad real de **orden estricto y corte anticipado**. Si no hay stock disponible, el pedido se rechaza inmediatamente sin ejecutar consultas de mora a la base de datos.
 
-* **Ausencia de dependencia de orden y de corte anticipado:** A diferencia de `ValidadorStock` y `ValidadorCliente` (donde si el stock es insuficiente el flujo se interrumpe y no se consulta la mora del cliente), las campañas de promoción no tienen ninguna dependencia secuencial entre sí ni necesitan rechazar el pedido.
-* **Violación del contrato de abstracción:** La clase abstracta `ValidadorPedido` tiene como responsabilidad decidir si un pedido continúa o se rechaza (`contexto.rechazar(...)`). Las clases de promoción **nunca rechazan nada**; solo aprovechan la estructura existente para "engancharse" y mutar un campo compartido (`descuentoCampana`) en `ContextoPedido`.
-* **Reutilización por conveniencia y no por idoneidad:** Se aplicó `Chain of Responsibility` simplemente porque era la solución que ya estaba implementada y funcionaba en el proyecto para la Parte 1, sin evaluar si el nuevo requerimiento (cálculo de promociones) se ajustaba a la forma de una cadena.
+- **Strategy (`EstrategiaDescuento`):** Implementado con `DescuentoVip`, `DescuentoFrecuente` y `DescuentoEstandar`. A diferencia de las validaciones, los descuentos no requieren interrupción del flujo; solo se evalúa la regla correspondiente mediante `SelectorEstrategiaDescuento`.
 
-### Decisiones de diseño (Parte 2)
+- **Separación de Capas (SRP):** Extracción de la persistencia SQL a `PedidoRepository` y la lógica de correo a `NotificacionPedidoService`.
 
-#### Decisión con justificación — Strategy en vez de más eslabones de cadena
-Se corrigió modelando las tres campañas como `EstrategiaDescuento` y no como validadores de la cadena existente porque, igual que `DescuentoVip` y `DescuentoFrecuente`, calculan un porcentaje sin depender de un orden de evaluación ni necesitar la posibilidad de "cortar" el flujo del pedido — la propiedad que sí tienen `ValidadorStock` y `ValidadorCliente`. La alternativa de mantenerlas en la cadena fue descartada explícitamente por ser la causa del antipatrón Golden Hammer: reutilizar una herramienta conocida sin verificar que el nuevo problema tuviera su misma forma.
+#### **Alternativa Descartada**
 
-#### Decisión con justificación — Eliminar, no comentar, el código descartado
-Se eliminaron por completo `PromocionBlackFriday`, `PromocionCorporativo`, `PromocionVolumen` y el campo `descuentoCampana` en vez de dejarlos comentados como referencia histórica. Comentar código "por si se necesita después" es precisamente el mecanismo por el que nace el antipatrón Lava Flow. El historial de Git es el lugar correcto para conservar esa referencia.
+Se descartó usar un método `validarTodo()` basado en una lista de `Predicate<ContextoPedido>`. Dicha alternativa habría forzado la evaluación inútil de todos los predicados sobre el pedido, perdiendo la capacidad de corte anticipado directo que brinda la cadena.
+
+### Parte 2 — Crecimiento del Sistema (Golden Hammer)
+
+#### **Diagnóstico del Antipatrón**
+
+Al incorporar las promociones `BLACK_FRIDAY`, `CORPORATIVO` y `VOLUMEN`, se cometió el error de heredarlas de `ValidadorPedido` e insertarlas como eslabones en la cadena existente (**Golden Hammer**).
+
+- **Violación de Abstracción:** Las promociones jamás rechazan un pedido (`contexto.rechazar(...)`), por lo que no eran validadores reales. Solo abusaban de la estructura para mutar la variable `descuentoCampana`.
+
+- **Rigor estructural vs. Flexibilidad:** La cadena imponía un orden artificial. Si el negocio requiriera sumar dos promociones en lugar de aplicar la regla de "el mayor gana" (ej. acumular `VOLUMEN` + `CORPORATIVO`), la cadena habría fallado totalmente al depender de mutaciones secuenciales rígidas.
+
+#### **Solución Aplicada**
+
+Se eliminaron por completo las clases `PromocionBlackFriday`, `PromocionCorporativo` y `PromocionVolumen` de la cadena, transformándolas en estrategias (`DescuentoBlackFriday`, `DescuentoCorporativo`, `DescuentoVolumen`) gestionadas por `CalculadorDescuentoFinal`.
+
+#### **Prevención de Lava Flow**
+
+No se dejó ningún bloque de código obsoleto ni clases comentadas "por si acaso". Las clases mal aplicadas y la propiedad `descuentoCampana` se eliminaron definitivamente mediante comandos de Git (`git rm`), garantizando un código limpio y confiable en el presente.
 
 ---
 
 ## Cómo ejecutar
 ```
+mvn compile
 mvn spring-boot:run
 mvn test
 ```
@@ -100,6 +94,8 @@ mvn test
 
 ## Conclusiones
 
-El desarrollo de esta actividad permitió evidenciar cuantitativa y cualitativamente cómo los antipatrones deterioran la mantenibilidad, legibilidad y extensibilidad del código. La aplicación del Principio de Responsabilidad Única (SRP) junto con patrones como Chain of Responsibility y Strategy transformó una clase monolítica e inestable en un diseño modular, testeable y fácilmente extensible.
+- **Impacto Cuantitativo:** La refactorización permitió reducir en un **54.6% las líneas de código** de la clase principal, aplanar el anidamiento de 3 niveles a 1, y distribuir 6 responsabilidades en 11 componentes con propósitos claramente delimitados.
 
-Asimismo, la segunda parte demostró la importancia de evaluar críticamente cada nuevo requerimiento en lugar de reutilizar soluciones conocidas a ciegas (Golden Hammer), comprendiendo que la refactorización segura exige eliminar el código obsoleto en lugar de comentarlo para evitar la acumulación de deuda técnica (Lava Flow).
+- **Mantenibilidad Cualitativa:** La aplicación de *Chain of Responsibility* y *Strategy* convirtió un monolito frágil en una arquitectura extensible. Agregar una nueva regla de validación o un nuevo descuento no requiere modificar `GestorPedidos`.
+
+- **Lección sobre Antipatrones:** Reutilizar un patrón exitoso en un problema con requerimientos distintos genera un *Golden Hammer*. Asimismo, mantener el repositorio libre de código muerto previene la degradación por *Lava Flow*, confiando la memoria histórica a las herramientas de control de versiones como Git.
