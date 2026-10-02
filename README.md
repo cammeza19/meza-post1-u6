@@ -103,8 +103,8 @@ Mantener las promociones como eslabones dentro de la cadena de validación. Se d
 | **1. Stock insuficiente** | Producto ID: 2 | `Stock insuficiente: producto 2` | `Stock insuficiente: producto 2` | **Sí** |
 | **2. Cliente no registrado** | Cliente ID: 99 | `Cliente no registrado` | `Cliente no registrado` | **Sí** |
 | **3. Cliente moroso** | Deuda: $150,000 | `Cliente con deuda pendiente: $150000.0` | `Cliente con deuda pendiente: $150000.0` | **Sí** |
-| **4. Cliente VIP** | Subtotal: $1,100,000 (VIP, tramo > 1.000.000 → 15%) | `Confirmado - Total: $[SALIDA REAL]` | `Confirmado - Total: $[SALIDA REAL]` | **Sí** |
-| **5. Cliente Frecuente** | Subtotal: $240,000 ([N] pedidos previos → [8% / 4%]) | `Confirmado - Total: $[SALIDA REAL]` | `Confirmado - Total: $[SALIDA REAL]` | **Sí** |
+ **4. Cliente VIP** | Subtotal: $1,100,000 (VIP, tramo > 1.000.000 → 15%) | `Confirmado - Total: $1112650.0` | `Confirmado - Total: $1112650.0` | **Sí** |
+| **5. Cliente Frecuente** | Subtotal: $240,000 (12 pedidos previos → 8%) | `Confirmado - Total: $262752.0` | `Confirmado - Total: $262752.0` | **Sí** |
 
 #### Parte 2: Versión Golden Hammer (Commit `512d8e8`) vs. Versión Final Strategy
 *(En cada caso se usa un cliente de tipo ESTANDAR y solo está activa la condición bajo prueba; `promo.black-friday.activa=false` salvo en el caso 6)*
